@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use tracing::info;
+use tracing::{error, info};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -26,21 +26,38 @@ impl ApplicationHandler for App {
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
-        match event {
-            WindowEvent::CloseRequested
-            | WindowEvent::KeyboardInput {
-                event:
+        let wgpu_state = self.wgpu_state.as_mut().unwrap();
+        if id == wgpu_state.window.id() && !wgpu_state.input(&event) {
+            match event {
+                WindowEvent::CloseRequested
+                | WindowEvent::KeyboardInput {
+                    event:
                     KeyEvent {
                         state: ElementState::Pressed,
                         physical_key: PhysicalKey::Code(KeyCode::Escape),
                         ..
                     },
-                ..
-            } => {
-                info!("The close button was pressed; stopping");
-                event_loop.exit();
-            },
-            _ => (),
+                    ..
+                } => {
+                    info!("The close button was pressed; stopping");
+                    event_loop.exit();
+                },
+                WindowEvent::Resized(physical_size) => wgpu_state.resize(physical_size),
+                WindowEvent::RedrawRequested => {
+                    wgpu_state.window.request_redraw();
+                    wgpu_state.update();
+                    match wgpu_state.render() {
+                        Ok(_) => {}
+                        // Reconfigure the surface if lost
+                        Err(wgpu::SurfaceError::Lost) => wgpu_state.resize(wgpu_state.size),
+                        // The system is out of memory, we should probably quit
+                        Err(wgpu::SurfaceError::OutOfMemory) => event_loop.exit(),
+                        // All other errors (Outdated, Timeout) should be resolved by the next frame
+                        Err(e) => error!("{:?}", e),
+                    }
+                }
+                _ => (),
+            }
         }
     }
 }

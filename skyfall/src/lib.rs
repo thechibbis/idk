@@ -11,14 +11,14 @@ use winit::{
 use crate::application::App;
 
 struct WgpuState {
+    instance: wgpu::Instance,
     surface: wgpu::Surface<'static>,
+    adapter: wgpu::Adapter,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
-    // The window must be declared after the surface so
-    // it gets dropped after it as the surface contains
-    // unsafe references to the window's resources.
+    clear_color: wgpu::Color,
     window: Arc<Window>,
 }
 
@@ -36,7 +36,7 @@ impl WgpuState {
             backends: wgpu::Backends::GL,
             ..Default::default()
         });
-
+        
         // # Safety
         //
         // The surface needs to live as long as the window that created it.
@@ -74,9 +74,7 @@ impl WgpuState {
         // one will result in all the colors coming out darker. If you want to support non
         // sRGB surfaces, you'll need to account for that when drawing to the frame.
         let surface_format = surface_caps.formats.iter()
-            .copied()
-            .filter(|f| f.is_srgb())
-            .next()
+            .copied().find(|f| f.is_srgb())
             .unwrap_or(surface_caps.formats[0]);
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -88,14 +86,19 @@ impl WgpuState {
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
+        
+        let clear_color = wgpu::Color::BLUE;
 
         let state = Self {
-            window,
+            instance,
             surface,
+            adapter,
             device,
             queue,
             config,
             size,
+            clear_color,
+            window,
         };
 
         Ok(state)
@@ -106,19 +109,54 @@ impl WgpuState {
     }
 
     fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
-        todo!()
+        if new_size.width > 0 && new_size.height > 0 {
+            self.size = new_size;
+            self.config.width = new_size.width;
+            self.config.height = new_size.height;
+            self.surface.configure(&self.device, &self.config);
+        }
     }
 
+    /// if that function return true, so the window won't process any input.
     fn input(&mut self, event: &WindowEvent) -> bool {
-        todo!()
+        match event {
+            _ =>  false
+        }
     }
 
-    fn update(&mut self) {
-        todo!()
-    }
+    fn update(&mut self) {}
 
-    fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        todo!()
+    fn render(&mut self) -> anyhow::Result<(), wgpu::SurfaceError> {
+        let output = self.surface.get_current_texture()?;
+        
+        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Render Encoder"),
+        });
+
+        {
+            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(self.clear_color),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+        }
+
+        // submit will accept anything that implements IntoIter
+        self.queue.submit(std::iter::once(encoder.finish()));
+        output.present();
+        
+        Ok(())
     }
 }
 
@@ -133,4 +171,3 @@ pub async fn run() -> anyhow::Result<()> {
 
     Ok(())
 }
-
