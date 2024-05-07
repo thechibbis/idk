@@ -1,6 +1,6 @@
 mod application;
+mod render_pipeline;
 
-use std::ops::Deref;
 use std::sync::Arc;
 use tracing::debug;
 use winit::{
@@ -8,7 +8,10 @@ use winit::{
     event_loop::EventLoop,
     window::Window
 };
+use winit::event::{ElementState, KeyEvent};
+use winit::keyboard::{KeyCode, PhysicalKey};
 use crate::application::App;
+use crate::render_pipeline::create_default_render_pipeline;
 
 struct WgpuState {
     instance: wgpu::Instance,
@@ -19,6 +22,7 @@ struct WgpuState {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     clear_color: wgpu::Color,
+    render_pipeline: wgpu::RenderPipeline,
     window: Arc<Window>,
 }
 
@@ -86,8 +90,37 @@ impl WgpuState {
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
-        
+
         let clear_color = wgpu::Color::BLUE;
+
+        let shader = device.create_shader_module(wgpu::include_wgsl!("shaders/shader.wgsl"));
+
+        let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Render Pipeline Layout"),
+            bind_group_layouts: &[],
+            push_constant_ranges: &[],
+        });
+
+        let render_pipeline = create_default_render_pipeline(
+            &device,
+            &render_pipeline_layout,
+            wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_main",
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }
+        );
 
         let state = Self {
             instance,
@@ -98,6 +131,7 @@ impl WgpuState {
             config,
             size,
             clear_color,
+            render_pipeline,
             window,
         };
 
@@ -136,7 +170,7 @@ impl WgpuState {
         });
 
         {
-            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
@@ -150,6 +184,9 @@ impl WgpuState {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
+
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.draw(0..3, 0..1);
         }
 
         // submit will accept anything that implements IntoIter
