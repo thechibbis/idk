@@ -1,18 +1,13 @@
-mod application;
-mod render_pipeline;
+pub mod application;
+mod utils;
 
 use std::sync::Arc;
 use tracing::debug;
-use winit::{
-    event::WindowEvent,
-    event_loop::EventLoop,
-    window::Window
-};
-use winit::event::{ElementState, KeyEvent};
-use winit::keyboard::{KeyCode, PhysicalKey};
-use crate::application::App;
-use crate::render_pipeline::create_default_render_pipeline;
+use winit::{event::WindowEvent, window::Window};
 
+use crate::utils::create_default_render_pipeline;
+
+#[allow(unused)]
 struct WgpuState {
     instance: wgpu::Instance,
     surface: wgpu::Surface<'static>,
@@ -26,6 +21,7 @@ struct WgpuState {
     window: Arc<Window>,
 }
 
+#[allow(unused)]
 impl WgpuState {
     // Creating some of the wgpu types requires async code
     async fn new(window: Arc<Window>) -> anyhow::Result<Self> {
@@ -34,13 +30,10 @@ impl WgpuState {
         // The instance is a handle to our GPU
         // Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            #[cfg(not(target_arch="wasm32"))]
             backends: wgpu::Backends::PRIMARY,
-            #[cfg(target_arch="wasm32")]
-            backends: wgpu::Backends::GL,
             ..Default::default()
         });
-        
+
         // # Safety
         //
         // The surface needs to live as long as the window that created it.
@@ -48,28 +41,26 @@ impl WgpuState {
         // let surface = unsafe { instance.create_surface(&window) }.unwrap();
         let surface = instance.create_surface(Arc::clone(&window))?;
 
-        let adapter = instance.request_adapter(
-            &wgpu::RequestAdapterOptions {
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
-            },
-        ).await.unwrap();
+            })
+            .await
+            .unwrap();
 
-        let (device, queue) = adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                required_features: wgpu::Features::empty(),
-                // WebGL doesn't support all of wgpu's features, so if
-                // we're building for the web, we'll have to disable some.
-                required_limits: if cfg!(target_arch = "wasm32") {
-                    wgpu::Limits::downlevel_webgl2_defaults()
-                } else {
-                    wgpu::Limits::default()
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits::default(),
+                    label: None,
                 },
-                label: None,
-            },
-            None, // Trace path
-        ).await.unwrap();
+                None, // Trace path
+            )
+            .await
+            .unwrap();
 
         debug!("{:?}", adapter.features());
 
@@ -77,8 +68,11 @@ impl WgpuState {
         // Shader code in this tutorial assumes an sRGB surface texture. Using a different
         // one will result in all the colors coming out darker. If you want to support non
         // sRGB surfaces, you'll need to account for that when drawing to the frame.
-        let surface_format = surface_caps.formats.iter()
-            .copied().find(|f| f.is_srgb())
+        let surface_format = surface_caps
+            .formats
+            .iter()
+            .copied()
+            .find(|f| f.is_srgb())
             .unwrap_or(surface_caps.formats[0]);
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -95,11 +89,12 @@ impl WgpuState {
 
         let shader = device.create_shader_module(wgpu::include_wgsl!("shaders/shader.wgsl"));
 
-        let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[],
-            push_constant_ranges: &[],
-        });
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
 
         let render_pipeline = create_default_render_pipeline(
             &device,
@@ -119,7 +114,7 @@ impl WgpuState {
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
-            }
+            },
         );
 
         let state = Self {
@@ -154,7 +149,7 @@ impl WgpuState {
     /// if that function return true, so the window won't process any input.
     fn input(&mut self, event: &WindowEvent) -> bool {
         match event {
-            _ =>  false
+            _ => false,
         }
     }
 
@@ -162,12 +157,16 @@ impl WgpuState {
 
     fn render(&mut self) -> anyhow::Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
-        
-        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Render Encoder"),
-        });
+
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render Encoder"),
+            });
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -192,19 +191,7 @@ impl WgpuState {
         // submit will accept anything that implements IntoIter
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-        
+
         Ok(())
     }
-}
-
-pub async fn run() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
-    
-    let event_loop = EventLoop::new()?;
-
-    let mut app = App::default();
-
-    event_loop.run_app(&mut app)?;
-
-    Ok(())
 }
